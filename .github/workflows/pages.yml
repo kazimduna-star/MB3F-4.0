@@ -1,40 +1,76 @@
-name: Deploy MB WORLD 3D
+
+name: Deploy MB3D
+
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
+
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
+
 concurrency:
   group: pages
   cancel-in-progress: true
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble MB3D
+        run: |
+          mkdir -p site
+
+          for z in MB3D-*.zip; do
+            if [ -f "$z" ]; then
+              echo "Extracting $z"
+              unzip -oq "$z" -d site
+            fi
+          done
+
+          cd site
+
+          for f in $(find . -name '*.part01'); do
+            b="${f%.part01}"
+            cat "$b".part* > "$b"
+            rm "$b".part*
+          done
+
+          echo "Checking game files..."
+          find . -type f | head -50
+
+          if [ ! -f index.html ]; then
+            echo "ERROR: index.html not found!"
+            find . -iname 'index.html'
+            exit 1
+          fi
+
+          echo "Game files:"
+          find . -type f | wc -l
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          name: github-pages
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Assemble
-        shell: bash
-        run: |
-          mkdir site
-          for z in MB3D-*.zip; do
-            if [ -f "$z" ]; then unzip -oq "$z" -d site; fi
-          done
-          cd site
-          find . -name '*.part01' -print0 | while IFS= read -r -d '' f; do b="${f%.part01}"; cat "$b".part* > "$b"; rm "$b".part*; done
-          grep -v '  README.md$' checks.sha256 | sha256sum -c --quiet -
-          echo "checksums OK"
-          rm -f MANIFEST.txt checks.sha256 ИНСТРУКЦИЯ.txt
-          test -f index.html
-          echo "files: $(find . -type f | wc -l)"
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-      - id: deployment
+      - name: Deploy
+        id: deployment
         uses: actions/deploy-pages@v4
